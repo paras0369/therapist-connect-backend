@@ -41,10 +41,18 @@ app.use("/api/user", userRoutes);
 app.use("/api/therapist", therapistRoutes);
 app.use("/api/call", callRoutes);
 
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
 // Socket.io for real-time communication
 const connectedUsers = new Map();
 const connectedTherapists = new Map();
-const activeRooms = new Map(); // Track active call rooms
 
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
@@ -64,181 +72,131 @@ io.on("connection", (socket) => {
   });
 
   socket.on("call-therapist", (data) => {
-    console.log("Call request:", data);
     const therapistSocketId = connectedTherapists.get(data.therapistId);
-
     if (therapistSocketId) {
-      // Store room info for WebRTC signaling
-      activeRooms.set(data.roomId, {
-        userId: data.userId,
-        therapistId: data.therapistId,
-        userSocketId: socket.id,
-        therapistSocketId: therapistSocketId,
-      });
-
-      console.log(`Notifying therapist ${data.therapistId} of incoming call`);
+      console.log(
+        `Routing call from user ${data.userId} to therapist ${data.therapistId}`
+      );
       io.to(therapistSocketId).emit("incoming-call", {
         userId: data.userId,
         userName: data.userName || "User",
         roomId: data.roomId,
       });
     } else {
-      console.log(`Therapist ${data.therapistId} not connected`);
-      socket.emit("call-rejected", { reason: "Therapist not available" });
+      console.log(`Therapist ${data.therapistId} is not connected`);
+      // Notify user that therapist is not available
+      const userSocketId = connectedUsers.get(data.userId);
+      if (userSocketId) {
+        io.to(userSocketId).emit("call-rejected", {
+          therapistId: data.therapistId,
+          reason: "Therapist not online",
+        });
+      }
     }
   });
 
   socket.on("call-accepted", (data) => {
-    console.log("Call accepted:", data);
     const userSocketId = connectedUsers.get(data.userId);
-
     if (userSocketId) {
+      console.log(
+        `Call accepted by therapist ${data.therapistId} for user ${data.userId}`
+      );
       io.to(userSocketId).emit("call-accepted", {
         therapistId: data.therapistId,
         roomId: data.roomId,
       });
-      console.log(`Notified user ${data.userId} that call was accepted`);
     }
   });
 
   socket.on("call-rejected", (data) => {
-    console.log("Call rejected:", data);
     const userSocketId = connectedUsers.get(data.userId);
-
     if (userSocketId) {
+      console.log(
+        `Call rejected by therapist ${data.therapistId} for user ${data.userId}`
+      );
       io.to(userSocketId).emit("call-rejected", {
         therapistId: data.therapistId,
       });
     }
-
-    // Remove room from active rooms
-    const roomToRemove = Array.from(activeRooms.entries()).find(
-      ([_, room]) => room.userId === data.userId
-    );
-    if (roomToRemove) {
-      activeRooms.delete(roomToRemove[0]);
-      console.log(`Removed room ${roomToRemove[0]} after rejection`);
-    }
   });
 
-  // WebRTC signaling handlers
+  // WebRTC signaling events
   socket.on("offer", (data) => {
-    console.log(`Received offer for room ${data.roomId}`);
-    const room = activeRooms.get(data.roomId);
-
-    if (room) {
-      console.log(
-        `Forwarding offer to therapist socket ${room.therapistSocketId}`
-      );
-      io.to(room.therapistSocketId).emit("offer", {
-        roomId: data.roomId,
-        offer: data.offer,
-      });
-    } else {
-      console.log(`Room ${data.roomId} not found for offer`);
-    }
+    console.log(
+      `Offer received for room ${data.roomId} from socket ${socket.id}`
+    );
+    const roomSockets = io.sockets.adapter.rooms.get(data.roomId);
+    console.log(
+      `Room ${data.roomId} has ${roomSockets ? roomSockets.size : 0} members`
+    );
+    socket.to(data.roomId).emit("offer", data);
   });
 
   socket.on("answer", (data) => {
-    console.log(`Received answer for room ${data.roomId}`);
-    const room = activeRooms.get(data.roomId);
-
-    if (room) {
-      console.log(`Forwarding answer to user socket ${room.userSocketId}`);
-      io.to(room.userSocketId).emit("answer", {
-        roomId: data.roomId,
-        answer: data.answer,
-      });
-    } else {
-      console.log(`Room ${data.roomId} not found for answer`);
-    }
+    console.log(
+      `Answer received for room ${data.roomId} from socket ${socket.id}`
+    );
+    const roomSockets = io.sockets.adapter.rooms.get(data.roomId);
+    console.log(
+      `Room ${data.roomId} has ${roomSockets ? roomSockets.size : 0} members`
+    );
+    socket.to(data.roomId).emit("answer", data);
   });
 
   socket.on("ice-candidate", (data) => {
-    console.log(`Received ICE candidate for room ${data.roomId}`);
-    const room = activeRooms.get(data.roomId);
+    console.log(
+      `ICE candidate received for room ${data.roomId} from socket ${socket.id}`
+    );
+    socket.to(data.roomId).emit("ice-candidate", data);
+  });
 
-    if (room) {
-      // Determine which socket to send to (the other participant)
-      const targetSocketId =
-        socket.id === room.userSocketId
-          ? room.therapistSocketId
-          : room.userSocketId;
+  socket.on("join-room", (roomId) => {
+    socket.join(roomId);
+    console.log(`Socket ${socket.id} joined room ${roomId}`);
+    // Notify others in the room that someone joined
+    socket.to(roomId).emit("user-joined", { socketId: socket.id });
+  });
 
-      console.log(`Forwarding ICE candidate to socket ${targetSocketId}`);
-      io.to(targetSocketId).emit("ice-candidate", {
-        roomId: data.roomId,
-        candidate: data.candidate,
-      });
-    } else {
-      console.log(`Room ${data.roomId} not found for ICE candidate`);
-    }
+  socket.on("leave-room", (roomId) => {
+    socket.leave(roomId);
+    console.log(`Socket ${socket.id} left room ${roomId}`);
   });
 
   socket.on("end-call", (data) => {
-    console.log(`Call ended for room ${data.roomId}`);
-    const room = activeRooms.get(data.roomId);
-
-    if (room) {
-      // Notify the other participant
-      const targetSocketId =
-        socket.id === room.userSocketId
-          ? room.therapistSocketId
-          : room.userSocketId;
-
-      console.log(
-        `Notifying other party (socket ${targetSocketId}) that call ended`
-      );
-      io.to(targetSocketId).emit("call-ended");
-
-      // Remove room from active rooms
-      activeRooms.delete(data.roomId);
-      console.log(`Removed room ${data.roomId}`);
-    }
+    console.log(`Call ended in room ${data.roomId}`);
+    socket.to(data.roomId).emit("call-ended");
   });
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
-
+    console.log(`Client disconnected: ${socket.id}`);
     if (socket.userType === "user" && socket.userId) {
       connectedUsers.delete(socket.userId);
-      console.log(`Removed user ${socket.userId} from connected users`);
+      console.log(`User ${socket.userId} disconnected`);
     } else if (socket.userType === "therapist" && socket.therapistId) {
       connectedTherapists.delete(socket.therapistId);
-      console.log(
-        `Removed therapist ${socket.therapistId} from connected therapists`
-      );
-    }
-
-    // Clean up any active rooms this socket was part of
-    for (const [roomId, room] of activeRooms.entries()) {
-      if (
-        room.userSocketId === socket.id ||
-        room.therapistSocketId === socket.id
-      ) {
-        console.log(`Cleaning up room ${roomId} due to disconnect`);
-
-        // Notify the other participant that the call ended
-        const otherSocketId =
-          room.userSocketId === socket.id
-            ? room.therapistSocketId
-            : room.userSocketId;
-
-        if (otherSocketId) {
-          console.log(
-            `Notifying other party (socket ${otherSocketId}) of disconnect`
-          );
-          io.to(otherSocketId).emit("call-ended");
-        }
-
-        activeRooms.delete(roomId);
-        break;
-      }
+      console.log(`Therapist ${socket.therapistId} disconnected`);
     }
   });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Error:", err.stack);
+  res.status(500).json({ error: "Something went wrong!" });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
 });
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(
+    `MongoDB URI: ${
+      process.env.MONGODB_URI || "mongodb://localhost:27017/therapist-connect"
+    }`
+  );
 });
