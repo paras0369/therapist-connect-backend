@@ -5,6 +5,7 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const http = require("http");
 const socketIO = require("socket.io");
+const FirebaseNotificationService = require("./services/firebaseAdmin");
 
 dotenv.config();
 
@@ -71,25 +72,52 @@ io.on("connection", (socket) => {
     console.log(`Therapist ${therapistId} connected with socket ${socket.id}`);
   });
 
-  socket.on("call-therapist", (data) => {
-    const therapistSocketId = connectedTherapists.get(data.therapistId);
-    if (therapistSocketId) {
-      console.log(
-        `Routing call from user ${data.userId} to therapist ${data.therapistId}`
-      );
-      io.to(therapistSocketId).emit("incoming-call", {
-        userId: data.userId,
-        userName: data.userName || "User",
-        roomId: data.roomId,
-      });
-    } else {
-      console.log(`Therapist ${data.therapistId} is not connected`);
-      // Notify user that therapist is not available
+  socket.on("call-therapist", async (data) => {
+    try {
+      const therapistSocketId = connectedTherapists.get(data.therapistId);
+
+      // Always send Firebase notification regardless of socket connection
+      const Therapist = require("./models/Therapist");
+      const therapist = await Therapist.findById(data.therapistId);
+
+      if (therapist && therapist.fcmToken) {
+        console.log(
+          `Sending Firebase notification to therapist ${data.therapistId}`
+        );
+        await FirebaseNotificationService.sendCallNotification(
+          therapist.fcmToken,
+          {
+            userId: data.userId,
+            userName: data.userName || "User",
+            roomId: data.roomId,
+            callId: data.callId,
+          }
+        );
+      }
+
+      // Also send socket notification if therapist is connected
+      if (therapistSocketId) {
+        console.log(
+          `Routing call from user ${data.userId} to therapist ${data.therapistId}`
+        );
+        io.to(therapistSocketId).emit("incoming-call", {
+          userId: data.userId,
+          userName: data.userName || "User",
+          roomId: data.roomId,
+        });
+      } else {
+        console.log(
+          `Therapist ${data.therapistId} is not connected via socket, but Firebase notification sent`
+        );
+      }
+    } catch (error) {
+      console.error("Error handling call-therapist:", error);
+      // Notify user that notification failed
       const userSocketId = connectedUsers.get(data.userId);
       if (userSocketId) {
         io.to(userSocketId).emit("call-rejected", {
           therapistId: data.therapistId,
-          reason: "Therapist not online",
+          reason: "Notification failed",
         });
       }
     }
@@ -125,20 +153,12 @@ io.on("connection", (socket) => {
     console.log(
       `Offer received for room ${data.roomId} from socket ${socket.id}`
     );
-    const roomSockets = io.sockets.adapter.rooms.get(data.roomId);
-    console.log(
-      `Room ${data.roomId} has ${roomSockets ? roomSockets.size : 0} members`
-    );
     socket.to(data.roomId).emit("offer", data);
   });
 
   socket.on("answer", (data) => {
     console.log(
       `Answer received for room ${data.roomId} from socket ${socket.id}`
-    );
-    const roomSockets = io.sockets.adapter.rooms.get(data.roomId);
-    console.log(
-      `Room ${data.roomId} has ${roomSockets ? roomSockets.size : 0} members`
     );
     socket.to(data.roomId).emit("answer", data);
   });
@@ -153,7 +173,6 @@ io.on("connection", (socket) => {
   socket.on("join-room", (roomId) => {
     socket.join(roomId);
     console.log(`Socket ${socket.id} joined room ${roomId}`);
-    // Notify others in the room that someone joined
     socket.to(roomId).emit("user-joined", { socketId: socket.id });
   });
 
@@ -194,9 +213,6 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(
-    `MongoDB URI: ${
-      process.env.MONGODB_URI || "mongodb://localhost:27017/therapist-connect"
-    }`
-  );
 });
+
+module.exports = { app, server, io };

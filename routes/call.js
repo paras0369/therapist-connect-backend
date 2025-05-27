@@ -1,4 +1,3 @@
-// routes/call.js
 const express = require("express");
 const router = express.Router();
 const CallLog = require("../models/CallLog");
@@ -66,46 +65,102 @@ router.post("/answer/:callId", auth("therapist"), async (req, res) => {
   }
 });
 
-// End call
+// End call - FIXED VERSION with proper calculations
 router.post("/end/:callId", auth(), async (req, res) => {
   try {
     const { callId } = req.params;
     const { endedBy } = req.body;
+
+    console.log(`Ending call ${callId}, ended by: ${endedBy}`);
 
     const callLog = await CallLog.findById(callId);
     if (!callLog) {
       return res.status(404).json({ error: "Call not found" });
     }
 
+    // Prevent double processing
+    if (callLog.status.includes("ended")) {
+      console.log("Call already ended, skipping processing");
+      return res.json({ success: true, callLog });
+    }
+
     // Calculate duration and costs
     const endTime = new Date();
-    const durationMinutes = Math.ceil((endTime - callLog.startTime) / 60000);
-    const costInCoins = durationMinutes * 5;
-    const therapistEarningsCoins = durationMinutes * 2.5;
+    const durationMinutes = Math.max(
+      1,
+      Math.ceil((endTime - callLog.startTime) / 60000)
+    ); // Minimum 1 minute
+    const costInCoins = durationMinutes * 5; // 5 coins per minute
+    const therapistEarningsCoins = Math.floor(durationMinutes * 2.5); // 2.5 coins per minute for therapist
+
+    console.log(
+      `Call duration: ${durationMinutes} minutes, cost: ${costInCoins} coins, therapist earnings: ${therapistEarningsCoins} coins`
+    );
 
     // Update call log
-    callLog.endTime = endTime;
-    callLog.durationMinutes = durationMinutes;
-    callLog.costInCoins = costInCoins;
-    callLog.therapistEarningsCoins = therapistEarningsCoins;
-    callLog.status =
-      endedBy === "user" ? "ended_by_user" : "ended_by_therapist";
-    await callLog.save();
+    const updatedCallLog = await CallLog.findByIdAndUpdate(
+      callId,
+      {
+        endTime: endTime,
+        durationMinutes: durationMinutes,
+        costInCoins: costInCoins,
+        therapistEarningsCoins: therapistEarningsCoins,
+        status: endedBy === "user" ? "ended_by_user" : "ended_by_therapist",
+      },
+      { new: true }
+    );
 
-    // Update user balance
-    await User.findByIdAndUpdate(callLog.userId, {
-      $inc: { coinBalance: -costInCoins },
+    // Update user balance - deduct coins
+    const updatedUser = await User.findByIdAndUpdate(
+      callLog.userId,
+      { $inc: { coinBalance: -costInCoins } },
+      { new: true }
+    );
+
+    console.log(
+      `Updated user ${callLog.userId} balance: ${updatedUser.coinBalance} (deducted ${costInCoins})`
+    );
+
+    // Update therapist earnings - add coins
+    const updatedTherapist = await Therapist.findByIdAndUpdate(
+      callLog.therapistId,
+      { $inc: { totalEarningsCoins: therapistEarningsCoins } },
+      { new: true }
+    );
+
+    console.log(
+      `Updated therapist ${callLog.therapistId} earnings: ${updatedTherapist.totalEarningsCoins} (added ${therapistEarningsCoins})`
+    );
+
+    res.json({
+      success: true,
+      callLog: updatedCallLog,
+      userBalance: updatedUser.coinBalance,
+      therapistEarnings: updatedTherapist.totalEarningsCoins,
     });
-
-    // Update therapist earnings
-    await Therapist.findByIdAndUpdate(callLog.therapistId, {
-      $inc: { totalEarningsCoins: therapistEarningsCoins },
-    });
-
-    res.json({ success: true, callLog });
   } catch (error) {
     console.error("End call error:", error);
     res.status(500).json({ error: "Failed to end call" });
+  }
+});
+
+// Get call details
+router.get("/details/:callId", auth(), async (req, res) => {
+  try {
+    const { callId } = req.params;
+
+    const callLog = await CallLog.findById(callId)
+      .populate("userId", "phoneNumber coinBalance")
+      .populate("therapistId", "name totalEarningsCoins");
+
+    if (!callLog) {
+      return res.status(404).json({ error: "Call not found" });
+    }
+
+    res.json({ success: true, callLog });
+  } catch (error) {
+    console.error("Get call details error:", error);
+    res.status(500).json({ error: "Failed to get call details" });
   }
 });
 

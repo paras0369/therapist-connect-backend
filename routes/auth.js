@@ -1,4 +1,4 @@
-// routes/auth.js
+// Fixed routes/auth.js - Fix the FCM token update route
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
@@ -17,6 +17,34 @@ const generateToken = (id, role) => {
     expiresIn: "30d",
   });
 };
+
+// Update FCM token for user - FIXED VERSION
+router.post("/update-fcm-token", async (req, res) => {
+  try {
+    const { userId, fcmToken, userType } = req.body;
+
+    // Skip if userId is "temp" or invalid
+    if (!userId || userId === "temp" || !fcmToken) {
+      console.log(
+        "Skipping FCM token update - invalid userId or missing token"
+      );
+      return res.json({ success: true, message: "FCM token update skipped" });
+    }
+
+    if (userType === "user") {
+      await User.findByIdAndUpdate(userId, { fcmToken });
+      console.log(`FCM token updated for user ${userId}`);
+    } else if (userType === "therapist") {
+      await Therapist.findByIdAndUpdate(userId, { fcmToken });
+      console.log(`FCM token updated for therapist ${userId}`);
+    }
+
+    res.json({ success: true, message: "FCM token updated successfully" });
+  } catch (error) {
+    console.error("Update FCM token error:", error);
+    res.status(500).json({ error: "Failed to update FCM token" });
+  }
+});
 
 // Send OTP to user
 router.post("/send-otp", async (req, res) => {
@@ -55,10 +83,10 @@ router.post("/send-otp", async (req, res) => {
   }
 });
 
-// Verify OTP and login
+// Verify OTP and login - FIXED VERSION
 router.post("/verify-otp", async (req, res) => {
   try {
-    const { phoneNumber, otp } = req.body;
+    const { phoneNumber, otp, fcmToken } = req.body;
 
     const user = await User.findOne({ phoneNumber });
     if (!user || !user.otp || !user.otpExpiry) {
@@ -73,9 +101,12 @@ router.post("/verify-otp", async (req, res) => {
       return res.status(400).json({ error: "OTP expired" });
     }
 
-    // Clear OTP
+    // Clear OTP and update FCM token if provided
     user.otp = null;
     user.otpExpiry = null;
+    if (fcmToken) {
+      user.fcmToken = fcmToken;
+    }
     await user.save();
 
     const token = generateToken(user._id, "user");
@@ -95,10 +126,10 @@ router.post("/verify-otp", async (req, res) => {
   }
 });
 
-// Therapist login
+// Therapist login - FIXED VERSION
 router.post("/therapist-login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, fcmToken } = req.body;
 
     const therapist = await Therapist.findOne({ email });
     if (!therapist) {
@@ -108,6 +139,12 @@ router.post("/therapist-login", async (req, res) => {
     const isValidPassword = await therapist.comparePassword(password);
     if (!isValidPassword) {
       return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    // Update FCM token if provided
+    if (fcmToken) {
+      therapist.fcmToken = fcmToken;
+      await therapist.save();
     }
 
     const token = generateToken(therapist._id, "therapist");

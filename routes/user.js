@@ -1,4 +1,3 @@
-// routes/user.js
 const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
@@ -21,7 +20,7 @@ router.get("/therapists", auth("user"), async (req, res) => {
   }
 });
 
-// Get user profile
+// Get user profile - ENHANCED with real-time data
 router.get("/profile", auth("user"), async (req, res) => {
   try {
     const user = await User.findById(req.userId).select("-otp -otpExpiry");
@@ -30,14 +29,38 @@ router.get("/profile", auth("user"), async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.json({ user });
+    // Get additional stats
+    const totalCalls = await CallLog.countDocuments({
+      userId: req.userId,
+      status: { $in: ["ended_by_user", "ended_by_therapist"] },
+    });
+
+    const totalSpentResult = await CallLog.aggregate([
+      {
+        $match: {
+          userId: new mongoose.Types.ObjectId(req.userId),
+          status: { $in: ["ended_by_user", "ended_by_therapist"] },
+        },
+      },
+      { $group: { _id: null, totalSpent: { $sum: "$costInCoins" } } },
+    ]);
+
+    const totalSpent = totalSpentResult[0]?.totalSpent || 0;
+
+    res.json({
+      user: {
+        ...user.toObject(),
+        totalCalls,
+        totalSpent,
+      },
+    });
   } catch (error) {
     console.error("Get profile error:", error);
     res.status(500).json({ error: "Failed to fetch profile" });
   }
 });
 
-// Get user call history
+// Get user call history - ENHANCED with better data
 router.get("/call-history", auth("user"), async (req, res) => {
   try {
     const calls = await CallLog.find({
@@ -48,7 +71,7 @@ router.get("/call-history", auth("user"), async (req, res) => {
     })
       .populate("therapistId", "name")
       .sort({ startTime: -1 })
-      .limit(50); // Limit to last 50 calls
+      .limit(50);
 
     res.json({ calls });
   } catch (error) {
@@ -57,7 +80,7 @@ router.get("/call-history", auth("user"), async (req, res) => {
   }
 });
 
-// Get user statistics
+// Get user statistics - ENHANCED with real-time calculations
 router.get("/stats", auth("user"), async (req, res) => {
   try {
     const userId = req.userId;
@@ -121,15 +144,37 @@ router.get("/stats", auth("user"), async (req, res) => {
       monthlySpent: 0,
     };
 
+    // Get current balance
+    const user = await User.findById(userId).select("coinBalance");
+
     res.json({
       totalCalls,
       totalCoinsSpent,
       totalMinutes,
+      currentBalance: user.coinBalance,
       ...monthlyStats,
     });
   } catch (error) {
     console.error("Get user stats error:", error);
     res.status(500).json({ error: "Failed to fetch user statistics" });
+  }
+});
+
+// Add coin balance endpoint for real-time updates
+router.get("/balance", auth("user"), async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select("coinBalance");
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      coinBalance: user.coinBalance,
+    });
+  } catch (error) {
+    console.error("Get balance error:", error);
+    res.status(500).json({ error: "Failed to fetch balance" });
   }
 });
 

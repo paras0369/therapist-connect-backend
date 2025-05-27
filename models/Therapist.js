@@ -36,6 +36,10 @@ const therapistSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  fcmToken: {
+    type: String,
+    default: null,
+  },
 });
 
 therapistSchema.pre("save", async function (next) {
