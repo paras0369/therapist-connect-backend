@@ -25,6 +25,7 @@ const therapistSchema = new mongoose.Schema({
     default: 0,
   },
   fcmToken: {
+    // Single fcmToken field
     type: String,
     default: null,
   },
@@ -35,10 +36,6 @@ const therapistSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now,
-  },
-  fcmToken: {
-    type: String,
-    default: null,
   },
 });
 
