@@ -1,44 +1,29 @@
-// services/firebaseAdmin.js - Updated for multiple Firebase projects
+// services/firebaseAdmin.js - FIXED VERSION - Use Single Firebase Project
 const admin = require("firebase-admin");
 
-// Initialize separate Firebase Admin apps for user and therapist
-let userApp = null;
-let therapistApp = null;
+// Use ONLY ONE Firebase project for both users and therapists
+let firebaseApp = null;
 
 try {
-  // User app Firebase configuration
-  const userServiceAccount = require("../config/therapistconnect-76dd0-firebase-adminsdk-fbsvc-a48d512c99.json"); // You'll need this file
-  userApp = admin.initializeApp(
-    {
-      credential: admin.credential.cert(userServiceAccount),
-    },
-    "userApp"
-  );
-  console.log("User Firebase app initialized successfully");
-} catch (error) {
-  console.error("Failed to initialize user Firebase app:", error);
-}
+  // Use the same Firebase project for both users and therapists
+  // Choose one of your service account files (recommend keeping therapistconnect-76dd0)
+  const serviceAccount = require("../config/therapistconnect-76dd0-firebase-adminsdk-fbsvc-b165ccebe0.json");
 
-try {
-  // Therapist app Firebase configuration
-  const therapistServiceAccount = require("../config/therapistconnect-76dd0-firebase-adminsdk-fbsvc-a48d512c99.json");
-  therapistApp = admin.initializeApp(
-    {
-      credential: admin.credential.cert(therapistServiceAccount),
-    },
-    "therapistApp"
-  );
-  console.log("Therapist Firebase app initialized successfully");
+  firebaseApp = admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+
+  console.log("Firebase app initialized successfully");
 } catch (error) {
-  console.error("Failed to initialize therapist Firebase app:", error);
+  console.error("Failed to initialize Firebase app:", error);
 }
 
 class FirebaseNotificationService {
-  // Send notification to therapist (using therapist Firebase project)
+  // Send notification to therapist
   static async sendCallNotification(therapistFCMToken, callData) {
     try {
-      if (!therapistApp) {
-        console.error("Therapist Firebase app not initialized");
+      if (!firebaseApp) {
+        console.error("Firebase app not initialized");
         return null;
       }
 
@@ -54,6 +39,9 @@ class FirebaseNotificationService {
           userName: callData.userName || "User",
           roomId: callData.roomId,
           callId: callData.callId || "",
+          zegoCallId: callData.zegoCallId || "", // Make sure this is included
+          callType: callData.callType || "voice",
+          therapistId: callData.therapistId || "",
           timestamp: Date.now().toString(),
         },
         android: {
@@ -71,7 +59,7 @@ class FirebaseNotificationService {
         },
       };
 
-      const response = await therapistApp.messaging().send(message);
+      const response = await firebaseApp.messaging().send(message);
       console.log(
         "Successfully sent call notification to therapist:",
         response
@@ -83,11 +71,11 @@ class FirebaseNotificationService {
     }
   }
 
-  // Send notification to user (using user Firebase project)
+  // Send notification to user
   static async sendCallEndedNotification(userFCMToken, callData) {
     try {
-      if (!userApp) {
-        console.error("User Firebase app not initialized");
+      if (!firebaseApp) {
+        console.error("Firebase app not initialized");
         return null;
       }
 
@@ -102,6 +90,7 @@ class FirebaseNotificationService {
           callId: callData.callId || "",
           duration: callData.duration || "0",
           cost: callData.cost || "0",
+          callType: callData.callType || "voice",
         },
         android: {
           notification: {
@@ -111,7 +100,7 @@ class FirebaseNotificationService {
         },
       };
 
-      const response = await userApp.messaging().send(message);
+      const response = await firebaseApp.messaging().send(message);
       console.log(
         "Successfully sent call ended notification to user:",
         response
@@ -123,11 +112,11 @@ class FirebaseNotificationService {
     }
   }
 
-  // Send notification to user about therapist availability, etc.
+  // Send notification to user about general updates
   static async sendUserNotification(userFCMToken, notificationData) {
     try {
-      if (!userApp) {
-        console.error("User Firebase app not initialized");
+      if (!firebaseApp) {
+        console.error("Firebase app not initialized");
         return null;
       }
 
@@ -146,7 +135,7 @@ class FirebaseNotificationService {
         },
       };
 
-      const response = await userApp.messaging().send(message);
+      const response = await firebaseApp.messaging().send(message);
       console.log("Successfully sent user notification:", response);
       return response;
     } catch (error) {
@@ -158,8 +147,8 @@ class FirebaseNotificationService {
   // Send notification to therapist about general updates
   static async sendTherapistNotification(therapistFCMToken, notificationData) {
     try {
-      if (!therapistApp) {
-        console.error("Therapist Firebase app not initialized");
+      if (!firebaseApp) {
+        console.error("Firebase app not initialized");
         return null;
       }
 
@@ -178,7 +167,7 @@ class FirebaseNotificationService {
         },
       };
 
-      const response = await therapistApp.messaging().send(message);
+      const response = await firebaseApp.messaging().send(message);
       console.log("Successfully sent therapist notification:", response);
       return response;
     } catch (error) {
@@ -187,11 +176,11 @@ class FirebaseNotificationService {
     }
   }
 
-  // Topic messaging for users
-  static async sendToUserTopic(topic, title, body, data = {}) {
+  // Topic messaging
+  static async sendToTopic(topic, title, body, data = {}) {
     try {
-      if (!userApp) {
-        console.error("User Firebase app not initialized");
+      if (!firebaseApp) {
+        console.error("Firebase app not initialized");
         return null;
       }
 
@@ -210,130 +199,99 @@ class FirebaseNotificationService {
         },
       };
 
-      const response = await userApp.messaging().send(message);
-      console.log("Successfully sent user topic notification:", response);
+      const response = await firebaseApp.messaging().send(message);
+      console.log("Successfully sent topic notification:", response);
       return response;
     } catch (error) {
-      console.error("Error sending user topic notification:", error);
+      console.error("Error sending topic notification:", error);
       throw error;
     }
   }
 
-  // Topic messaging for therapists
-  static async sendToTherapistTopic(topic, title, body, data = {}) {
+  // Subscribe to topic
+  static async subscribeToTopic(tokens, topic) {
     try {
-      if (!therapistApp) {
-        console.error("Therapist Firebase app not initialized");
+      if (!firebaseApp) {
+        console.error("Firebase app not initialized");
         return null;
       }
 
+      const response = await firebaseApp
+        .messaging()
+        .subscribeToTopic(tokens, topic);
+      console.log("Successfully subscribed to topic:", response);
+      return response;
+    } catch (error) {
+      console.error("Error subscribing to topic:", error);
+      throw error;
+    }
+  }
+
+  // Unsubscribe from topic
+  static async unsubscribeFromTopic(tokens, topic) {
+    try {
+      if (!firebaseApp) {
+        console.error("Firebase app not initialized");
+        return null;
+      }
+
+      const response = await firebaseApp
+        .messaging()
+        .unsubscribeFromTopic(tokens, topic);
+      console.log("Successfully unsubscribed from topic:", response);
+      return response;
+    } catch (error) {
+      console.error("Error unsubscribing from topic:", error);
+      throw error;
+    }
+  }
+
+  // Utility method to check if app is ready
+  static isReady() {
+    return firebaseApp !== null;
+  }
+
+  // Validate FCM token format
+  static isValidToken(token) {
+    if (!token || typeof token !== "string") {
+      return false;
+    }
+
+    // FCM tokens are typically 163+ characters long
+    if (token.length < 100) {
+      return false;
+    }
+
+    // Basic format check - FCM tokens are alphanumeric with some special chars
+    const tokenRegex = /^[A-Za-z0-9_:/-]+$/;
+    return tokenRegex.test(token);
+  }
+
+  // Test notification - useful for debugging
+  static async sendTestNotification(fcmToken, userType = "user") {
+    try {
       const message = {
-        topic: topic,
+        token: fcmToken,
         notification: {
-          title: title,
-          body: body,
+          title: "🧪 Test Notification",
+          body: `Test notification for ${userType}`,
         },
-        data: data,
-        android: {
-          notification: {
-            channelId: "general_notifications",
-            sound: "default",
-          },
+        data: {
+          type: "test",
+          timestamp: Date.now().toString(),
         },
       };
 
-      const response = await therapistApp.messaging().send(message);
-      console.log("Successfully sent therapist topic notification:", response);
+      const response = await firebaseApp.messaging().send(message);
+      console.log(
+        `Test notification sent successfully to ${userType}:`,
+        response
+      );
       return response;
     } catch (error) {
-      console.error("Error sending therapist topic notification:", error);
+      console.error(`Error sending test notification to ${userType}:`, error);
       throw error;
     }
-  }
-
-  // Subscribe user to topic
-  static async subscribeUserToTopic(tokens, topic) {
-    try {
-      if (!userApp) {
-        console.error("User Firebase app not initialized");
-        return null;
-      }
-
-      const response = await userApp
-        .messaging()
-        .subscribeToTopic(tokens, topic);
-      console.log("Successfully subscribed users to topic:", response);
-      return response;
-    } catch (error) {
-      console.error("Error subscribing users to topic:", error);
-      throw error;
-    }
-  }
-
-  // Subscribe therapist to topic
-  static async subscribeTherapistToTopic(tokens, topic) {
-    try {
-      if (!therapistApp) {
-        console.error("Therapist Firebase app not initialized");
-        return null;
-      }
-
-      const response = await therapistApp
-        .messaging()
-        .subscribeToTopic(tokens, topic);
-      console.log("Successfully subscribed therapists to topic:", response);
-      return response;
-    } catch (error) {
-      console.error("Error subscribing therapists to topic:", error);
-      throw error;
-    }
-  }
-
-  // Unsubscribe user from topic
-  static async unsubscribeUserFromTopic(tokens, topic) {
-    try {
-      if (!userApp) {
-        console.error("User Firebase app not initialized");
-        return null;
-      }
-
-      const response = await userApp
-        .messaging()
-        .unsubscribeFromTopic(tokens, topic);
-      console.log("Successfully unsubscribed users from topic:", response);
-      return response;
-    } catch (error) {
-      console.error("Error unsubscribing users from topic:", error);
-      throw error;
-    }
-  }
-
-  // Unsubscribe therapist from topic
-  static async unsubscribeTherapistFromTopic(tokens, topic) {
-    try {
-      if (!therapistApp) {
-        console.error("Therapist Firebase app not initialized");
-        return null;
-      }
-
-      const response = await therapistApp
-        .messaging()
-        .unsubscribeFromTopic(tokens, topic);
-      console.log("Successfully unsubscribed therapists from topic:", response);
-      return response;
-    } catch (error) {
-      console.error("Error unsubscribing therapists from topic:", error);
-      throw error;
-    }
-  }
-
-  // Utility method to check if apps are initialized
-  static isUserAppReady() {
-    return userApp !== null;
-  }
-
-  static isTherapistAppReady() {
-    return therapistApp !== null;
   }
 }
 

@@ -145,7 +145,7 @@ io.on("connection", (socket) => {
           `Sending Firebase notification to therapist ${therapistId}`
         );
 
-        if (FirebaseNotificationService.isTherapistAppReady()) {
+        if (FirebaseNotificationService.isReady()) {
           await FirebaseNotificationService.sendCallNotification(
             therapist.fcmToken,
             {
