@@ -7,7 +7,7 @@ let firebaseApp = null;
 try {
   // Use the same Firebase project for both users and therapists
   // Choose one of your service account files (recommend keeping therapistconnect-76dd0)
-  const serviceAccount = require("../config/therapistconnect-76dd0-firebase-adminsdk-fbsvc-b165ccebe0.json");
+  const serviceAccount = require("../config/therapistconnect-76dd0-firebase-adminsdk-fbsvc-a48d512c99.json");
 
   firebaseApp = admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),

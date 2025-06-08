@@ -44,3 +44,5 @@ coverage
 node_modules/.package-lock.json
 package-lock.json
 config/therapistconnect-76dd0-firebase-adminsdk-fbsvc-a48d512c99.json
+node_modules
+node_modules/

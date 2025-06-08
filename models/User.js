@@ -1,4 +1,4 @@
-// models/User.js
+// models/User.js - Remove fcmToken
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
@@ -26,10 +26,6 @@ const userSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now,
-  },
-  fcmToken: {
-    type: String,
-    default: null,
   },
 });
 

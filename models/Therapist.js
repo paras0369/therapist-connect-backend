@@ -1,4 +1,4 @@
-// models/Therapist.js
+// models/Therapist.js - Remove fcmToken
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
@@ -23,11 +23,6 @@ const therapistSchema = new mongoose.Schema({
   totalEarningsCoins: {
     type: Number,
     default: 0,
-  },
-  fcmToken: {
-    // Single fcmToken field
-    type: String,
-    default: null,
   },
   createdAt: {
     type: Date,
