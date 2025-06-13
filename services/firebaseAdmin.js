@@ -38,8 +38,7 @@ class FirebaseNotificationService {
           userId: callData.userId,
           userName: callData.userName || "User",
           roomId: callData.roomId,
-          callId: callData.callId || "",
-          zegoCallId: callData.zegoCallId || "", // Make sure this is included
+          callId: callData.callId || "", // Make sure this is included
           callType: callData.callType || "voice",
           therapistId: callData.therapistId || "",
           timestamp: Date.now().toString(),

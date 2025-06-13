@@ -1,4 +1,4 @@
-// Enhanced models/CallLog.js - ZegoCloud support
+// Enhanced models/CallLog.js - WebRTC support
 const mongoose = require("mongoose");
 
 const callLogSchema = new mongoose.Schema(
@@ -61,11 +61,11 @@ const callLogSchema = new mongoose.Schema(
       ],
       default: "initiated",
     },
-    // ZegoCloud specific fields
-    zegoCallId: {
+    // WebRTC specific fields
+    callId: {
       type: String,
       required: true,
-      unique: true, // Ensure unique ZegoCloud call IDs
+      unique: true, // Ensure unique call IDs
       index: true,
     },
     callType: {
@@ -341,8 +341,8 @@ callLogSchema.methods.processRefund = function (amount, reason) {
 };
 
 // Static methods
-callLogSchema.statics.findByZegoCallId = function (zegoCallId) {
-  return this.findOne({ zegoCallId });
+callLogSchema.statics.findByCallId = function (callId) {
+  return this.findOne({ callId });
 };
 
 callLogSchema.statics.getActiveCallsCount = function (userId, userType) {
@@ -484,9 +484,9 @@ callLogSchema.pre("save", function (next) {
 
 // Pre-save middleware to validate call data
 callLogSchema.pre("save", function (next) {
-  // Ensure zegoCallId is provided for new calls
-  if (this.isNew && !this.zegoCallId) {
-    return next(new Error("ZegoCloud call ID is required"));
+  // Ensure callId is provided for new calls
+  if (this.isNew && !this.callId) {
+    return next(new Error("Call ID is required"));
   }
 
   // Validate call type
@@ -512,7 +512,7 @@ callLogSchema.post("save", function (doc) {
   // Log call completion for analytics
   if (doc.status.includes("ended") && doc.durationMinutes > 0) {
     console.log(
-      `Call completed: ${doc.zegoCallId}, Duration: ${doc.durationMinutes} min, Type: ${doc.callType}`
+      `Call completed: ${doc.callId}, Duration: ${doc.durationMinutes} min, Type: ${doc.callType}`
     );
   }
 });
